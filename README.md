@@ -18,6 +18,9 @@ spec:
         - http://badips.example.com/ip-blocklist"
       useragentblocklisturls:
         - http://badips.example.com/useragent-blocklist"
+      useragentallowlist:
+        - "Googlebot"
+        - "MyCustomTool"
 ```
 
 ## Blocklist

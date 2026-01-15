@@ -20,6 +20,7 @@ import (
 type Config struct {
 	IpBlocklistUrls        []string `json:"ipblocklisturls,omitempty"`
 	UserAgentBlocklistUrls []string `json:"useragentblocklisturls,omitempty"`
+	UserAgentAllowlist     []string `json:"useragentallowlist,omitempty"`
 	LogLevel               string   `json:"loglevel,omitempty"`
 }
 
@@ -27,6 +28,7 @@ func CreateConfig() *Config {
 	return &Config{
 		IpBlocklistUrls:        []string{},
 		UserAgentBlocklistUrls: []string{},
+		UserAgentAllowlist:     []string{},
 		LogLevel:               "INFO",
 	}
 }
@@ -36,6 +38,7 @@ type BotBlocker struct {
 	name               string
 	prefixBlocklist    []netip.Prefix
 	userAgentBlockList []string
+	userAgentAllowList []string
 	prefixMutex        sync.RWMutex
 	uaMutex            sync.RWMutex
 	Config
@@ -167,9 +170,10 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 	log.Default().Level = logLevel
 
 	blocker := BotBlocker{
-		name:   name,
-		next:   next,
-		Config: *config,
+		name:               name,
+		next:               next,
+		userAgentAllowList: config.UserAgentAllowlist,
+		Config:             *config,
 	}
 	err = blocker.update()
 	if err != nil {
@@ -220,6 +224,19 @@ func (b *BotBlocker) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	agent := strings.ToLower(req.UserAgent())
+	allowed, _, err := b.shouldAllowAgent(agent)
+	if err != nil {
+		timer()
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if allowed {
+		log.Debugf("Allowed request with user agent \"%v\"", agent)
+		timer()
+		b.next.ServeHTTP(rw, req)
+		return
+	}
+
 	blocked, badAgent, err := b.shouldBlockAgent(agent)
 	if err != nil {
 		timer()
@@ -247,6 +264,25 @@ func (b *BotBlocker) shouldBlockIp(addr netip.Addr) bool {
 		}
 	}
 	return false
+}
+
+func (b *BotBlocker) shouldAllowAgent(userAgent string) (bool, string, error) {
+	userAgent = strings.ToLower(strings.TrimSpace(userAgent))
+	// No mutex needed for allowlist as it's static config
+	for _, allowedAgent := range b.userAgentAllowList {
+		allowedAgent = strings.ToLower(allowedAgent)
+		if strings.Contains(userAgent, allowedAgent) {
+			pattern := fmt.Sprintf(`(?:\b)%s(?:\b)`, allowedAgent)
+			matched, err := regexp.Match(pattern, []byte(userAgent))
+			if err != nil {
+				return false, "", fmt.Errorf("failed to check user agent %s: %e", userAgent, err)
+			}
+			if matched {
+				return true, allowedAgent, nil
+			}
+		}
+	}
+	return false, "", nil
 }
 
 func (b *BotBlocker) shouldBlockAgent(userAgent string) (bool, string, error) {

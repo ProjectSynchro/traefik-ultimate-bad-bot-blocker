@@ -209,3 +209,23 @@ func TestShouldAllowUserAgentSubstring(t *testing.T) {
 		t.Fatalf("botBlocker.shouldBlockAgent(%s) = %s; want \"\"", userAgent, badAgent)
 	}
 }
+
+func TestShouldAllowAgent_Allowlist(t *testing.T) {
+	botBlocker := BotBlocker{
+		userAgentAllowList: []string{
+			"goodbot",
+		},
+	}
+	userAgent := "Mozilla/5.0 (compatible; GoodBot/1.0)"
+
+	allowed, matchedAgent, err := botBlocker.shouldAllowAgent(userAgent)
+	if err != nil {
+		t.Fatalf("botBlocker.shouldAllowAgent(%s) returned error: %v", userAgent, err)
+	}
+	if !allowed {
+		t.Fatalf("botBlocker.shouldAllowAgent(%s) = false; want true", userAgent)
+	}
+	if matchedAgent != "goodbot" {
+		t.Fatalf("botBlocker.shouldAllowAgent(%s) matched %s; want goodbot", userAgent, matchedAgent)
+	}
+}
